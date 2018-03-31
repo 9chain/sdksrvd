@@ -1,0 +1,7 @@
+node_modules/*
+fabric-client/node_modules/*
+fabric-ca-client/node_modules/*
+npm-shrinkwrap.json
+package-lock.json
+npm-debug.log
+logs/*

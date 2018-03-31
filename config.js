@@ -57,8 +57,15 @@ apiKeyMap.set("1234567890", {})
 
 const ApiKeyMap = apiKeyMap
 const AppCfg = {
-    Port: 8080,
+    Port: 8082,
     ListenAddr: "localhost:8081"
 }
 
-module.exports = { ApiKeyMap, AppCfg, WinstonCfg }
+const FabricCfg = {
+    UseOrg: 'org1',
+    ChaincodeId: 'notaryinfo',
+    DefaultChannel: 'businesschannel',
+    PutFcn: 'put'
+}
+
+module.exports = { ApiKeyMap, AppCfg, WinstonCfg, FabricCfg }

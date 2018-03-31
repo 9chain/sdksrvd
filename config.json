@@ -1,0 +1,65 @@
+{
+	"test-network": {
+		"orderer": {
+			"url": "grpcs://orderer.9chain.net:7050",
+			"server-hostname": "orderer.9chain.net",
+			"tls_cacerts": "/home/share/workspace/go/src/github.com/hyperledger/cello/src/agent/docker/_compose_files/fabric-1.0/crypto-config/ordererOrganizations/9chain.net/tlsca/tlsca.9chain.net-cert.pem"
+		},
+		"org1": {
+			"name": "peerOrg1",
+			"mspid": "Org1MSP",
+			"ca": {
+				"url": "https://ca.org1.9chain.net:7054",
+				"name": "ca_peerOrg1"
+			},
+			"peer1": {
+				"requests": "grpcs://peer0.org1.9chain.net:7051",
+				"events": "grpcs://peer0.org1.9chain.net:7053",
+				"server-hostname": "peer0.org1.9chain.net",
+				"tls_cacerts": "/home/share/workspace/go/src/github.com/hyperledger/cello/src/agent/docker/_compose_files/fabric-1.0/crypto-config/peerOrganizations/org1.9chain.net/tlsca/tlsca.org1.9chain.net-cert.pem"
+			}
+		},
+		"org2": {
+			"name": "peerOrg2",
+			"mspid": "Org2MSP",
+			"ca": {
+				"url": "https://ca.org2.9chain.net:7054",
+				"name": "ca_peerOrg2"
+			},
+			"peer1": {
+				"requests": "grpcs://peer0.org2.9chain.net:7051",
+				"events": "grpcs://peer0.org2.9chain.net:7053",
+				"server-hostname": "peer0.org2.9chain.net",
+				"tls_cacerts": "/home/share/workspace/go/src/github.com/hyperledger/cello/src/agent/docker/_compose_files/fabric-1.0/crypto-config/peerOrganizations/org2.9chain.net/tlsca/tlsca.org2.9chain.net-cert.pem"
+			}
+		},
+		"org3": {
+			"name": "peerOrg3",
+			"mspid": "Org3MSP",
+			"ca": {
+				"url": "https://ca.org3.9chain.net:7054",
+				"name": "ca_peerOrg3"
+			},
+			"peer1": {
+				"requests": "grpcs://peer0.org3.9chain.net:7051",
+				"events": "grpcs://peer0.org3.9chain.net:7053",
+				"server-hostname": "peer0.org3.9chain.net",
+				"tls_cacerts": "/home/share/workspace/go/src/github.com/hyperledger/cello/src/agent/docker/_compose_files/fabric-1.0/crypto-config/peerOrganizations/org3.9chain.net/tlsca/tlsca.org3.9chain.net-cert.pem"
+			}
+		},
+		"org4": {
+			"name": "peerOrg4",
+			"mspid": "Org4MSP",
+			"ca": {
+				"url": "https://ca.org4.9chain.net:7054",
+				"name": "ca_peerOrg4"
+			},
+			"peer1": {
+				"requests": "grpcs://peer0.org4.9chain.net:7051",
+				"events": "grpcs://peer0.org4.9chain.net:7053",
+				"server-hostname": "peer0.org4.9chain.net",
+				"tls_cacerts": "/home/share/workspace/go/src/github.com/hyperledger/cello/src/agent/docker/_compose_files/fabric-1.0/crypto-config/peerOrganizations/org4.9chain.net/tlsca/tlsca.org4.9chain.net-cert.pem"
+			}
+		}
+	}
+}

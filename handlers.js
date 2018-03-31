@@ -1,14 +1,24 @@
-const { MethodNotFoundError, InvalidParamsError, InvalidRequestError, InternalError } = require("./exception")
+
+const log = require("winston")
+
+//const { Sdk } = require("./sdk.js")
+const { ApiKeyMap, AppCfg, WinstonCfg, FabricCfg } = require("./config")
+const { MethodNotFoundError, InvalidParamsError, InvalidRequestError, InternalError, SDKError } = require("./exception")
+
 
 class Dispatcher {
-    constructor() { }
+    constructor(sdk) {
+        this.sdk = sdk
+    }
 
     dispatch(ctx, method, params) {
         switch (method) {
-            case "invoke":
+            case "create":
                 return this.invoke(ctx, params)
-            case "query":
+            case "transactions":
                 return this.query(ctx, params)
+            case "state":
+                return this.state(ctx, params)
             default:
                 throw new MethodNotFoundError(method)
         }
@@ -16,16 +26,50 @@ class Dispatcher {
         throw new InternalError("impossible")
     }
 
-    invoke(ctx, params) {
-        const promise = new Promise((resolve, reject) => {
-            setTimeout(() => {  // invoke callback 
-                return resolve(new Date())
-            }, 2000)
-        })
-        return promise
+    async invoke(ctx, params) {
+
+        var records = [];
+        for (var j = 0; j < params.records.length; j++) {
+            records.push(params.records[j].key);
+            records.push(params.records[j].value);
+        }
+
+        var txId = this.sdk.newTransactionID();
+        console.log(txId);
+        log.debug('New TransactionID = %s', txId.getTransactionID());
+
+        var request = {
+            chaincodeId: FabricCfg.ChaincodeId,
+            fcn: FabricCfg.PutFcn,
+            args: records,
+            txId: txId,
+        };
+
+        var result = await this.sdk.invokeChaincode(params.rid, params.channel, request);
+        return result
     }
-    query(ctx, params) {
-        return { "xx": 2 }
+
+    async query(ctx, params) {
+        console.log("key", params.key)
+
+        var request = {
+            chaincodeId: FabricCfg.ChaincodeId,
+            fcn: 'queryHistory',
+            args: [params.key]
+        };
+        const r = await this.sdk.queryChaincode(params.channel, request)
+        return JSON.parse(r)
+    }
+
+    async state(ctx, params) {
+        console.log("key", params.key)
+        var request = {
+            chaincodeId: FabricCfg.ChaincodeId,
+            fcn: 'queryState',
+            args: [params.key]
+        };
+        const r = await this.sdk.queryChaincode(params.channel, request)
+        return JSON.parse(r)
     }
 }
 

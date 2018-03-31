@@ -5,9 +5,10 @@ const assert = require("assert")
 const express = require('express')
 const log = require("winston")
 
+const { Sdk } = require("./sdk.js")
 const { Dispatcher } = require("./handlers")
 const { Json2RPCError } = require("./exception")
-const { ApiKeyMap, AppCfg,WinstonCfg } = require("./config")
+const { ApiKeyMap, AppCfg, WinstonCfg, FabricCfg } = require("./config")
 
 log.configure(WinstonCfg)
 
@@ -17,7 +18,8 @@ const server = http.createServer(app)
 const bodyParser = require('body-parser')
 var urlencodedParser = bodyParser.urlencoded({ extended: false })
 
-const dispather = new Dispatcher()
+const sdk = new Sdk()
+const dispather = new Dispatcher(sdk)
 const clients = new Map() // {[apikey]: {wsc: wsc, other = ...}}
 
 
@@ -74,6 +76,7 @@ function sendResult(ctx, resp) {
 }
 
 async function onMessage(ctx, message, req) {
+
     if (!checkApiKey(ctx.apiKey)) {
         return
     }
@@ -116,6 +119,10 @@ async function onMessage(ctx, message, req) {
         if (err instanceof Json2RPCError) {
             // 回复可处理的异常
             return sendResult(ctx, { "jsonrpc": "2.0", "id": id, "error": err.error })
+        }
+
+        if (err instanceof SDKError) {
+            return sendResult(ctx, { "jsonrpc": "2.0", "id": id, "error": err.error, "rid": err.rid })
         }
 
         //　其他异常，关闭连接　
@@ -164,7 +171,7 @@ curl localhost:8080/v1/test -H "X-Api-Key: apikey" -H 'content-type:application/
 // 本地测试
 app.post('/v1/test', urlencodedParser, bodyParser.json(), async (request, response) => {
     if (request.ip.indexOf("127.0.0.1") < 0) {   // 本地测试使用，禁止外部连接
-        return response.send("only allow local request. " + request.ip).status(400)
+        // return response.send("only allow local request. " + request.ip).status(400)
     }
 
     // 参数字段检查　
@@ -188,10 +195,24 @@ app.post('/v1/test', urlencodedParser, bodyParser.json(), async (request, respon
     }
 })
 
-function main() {
-    server.listen(AppCfg.Port, "localhost", () => {
+async function main() {
+    try {
+        await sdk.initChannel(FabricCfg.DefaultChannel, FabricCfg.UseOrg);
+    } catch (err) {
+        log.error(err);
+    }
+
+    process.on('SIGINT', function () {
+        console.log('Got SIGINT. start exit.');
+        sdk.close();
+        process.exit(0);
+    });
+
+    log.info("Start listening on %s", AppCfg.Port)
+
+    server.listen(AppCfg.Port, "0.0.0.0", () => {
         log.info("listening on %s", AppCfg.Port)
-        // console.log('Listening on ' + AppCfg.ListenAddr)
+        //console.log('Listening on ' + AppCfg.ListenAddr)
     })
 }
 
