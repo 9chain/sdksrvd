@@ -54,6 +54,7 @@ const WinstonCfg = {
 
 let apiKeyMap = new Map()
 apiKeyMap.set("1234567890", {})
+apiKeyMap.set("1234567891", {})
 
 const ApiKeyMap = apiKeyMap
 const AppCfg = {

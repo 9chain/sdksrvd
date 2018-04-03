@@ -19,6 +19,8 @@ class Dispatcher {
                 return this.query(ctx, params)
             case "state":
                 return this.state(ctx, params)
+            case "queryTransaction":
+                return this.queryTransaction(ctx,params)
             default:
                 throw new MethodNotFoundError(method)
         }
@@ -70,6 +72,11 @@ class Dispatcher {
         };
         const r = await this.sdk.queryChaincode(params.channel, request)
         return JSON.parse(r)
+    }
+
+    async queryTransaction(ctx, params) {
+        console.log("txId", params.tx_id)
+        return await this.sdk.queryTransaction(params.channel, params.tx_id)
     }
 }
 

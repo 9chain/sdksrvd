@@ -9,6 +9,7 @@ var copService = require('fabric-ca-client/lib/FabricCAClientImpl.js');
 var CryptoSuite = require('fabric-client/lib/impl/CryptoSuite_ECDSA_AES.js');
 var KeyStore = require('fabric-client/lib/impl/CryptoKeyStore.js');
 var ecdsaKey = require('fabric-client/lib/impl/ecdsa/key.js');
+const BlockDecoder = require('fabric-client/lib/BlockDecoder.js');
 var User = require('fabric-client/lib/User.js');
 
 const logger = require("winston")
@@ -183,6 +184,21 @@ class Sdk {
         return this.client.newTransactionID();
     }
 
+    queryTransaction(channel, txId) {
+        return this.getChannel(channel).queryTransaction(txId).then((processTrans) => {
+            var header = processTrans['transactionEnvelope']['payload']['header']
+            return {
+                'tx_id': header.channel_header.tx_id,
+                'timestamp': header.channel_header.timestamp,
+                'channel_id': header.channel_header.channel_id,
+                'type': BlockDecoder.HeaderType.convertToString(header.channel_header.type),
+            }
+        }, (err) => {
+            logger.error('Failed to send query transaction due to error: ' + err.stack ? err.stack : err);
+            throw new SDKError('undefine', 'Failed, got error on query transaction:' + err);
+        });
+    }
+
     queryChaincode(channel, reqParam) {
         return this.getChannel(channel).queryByChaincode(reqParam).then((response_payloads) => {
             if (response_payloads) {
@@ -199,7 +215,7 @@ class Sdk {
             }
         }, (err) => {
             logger.error('Failed to send query due to error: ' + err.stack ? err.stack : err);
-            throw new SDKError('undefine', 'Failed, got error on query');
+            throw new SDKError('undefine', 'Failed, got error on query:' + err);
         });
     }
 
@@ -296,7 +312,7 @@ class Sdk {
             }
         }, (err) => {
             logger.error('Failed to send proposal due to error: ' + err.stack ? err.stack : err);
-            throw new SDKError(rid, 'Failed to send proposal due to error: ' + err.stack ? err.stack : err);
+            throw new SDKError(rid, 'Failed to send proposal due to error: ' + err);
         }).then((response) => {
             if (response.status === 'SUCCESS') {
                 logger.debug('Successfully sent transaction to the orderer. TX_ID=' + '\'' + tx_id.getTransactionID() + '\'');
@@ -308,7 +324,7 @@ class Sdk {
             }
         }, (err) => {
             logger.error('Failed to send transaction due to error: ' + err.stack ? err.stack : err);
-            throw new SDKError(rid, 'Failed to send transaction due to error: ' + err.stack ? err.stack : err);
+            throw new SDKError(rid, 'Failed to send transaction due to error: ' + err);
         });
     }
 }

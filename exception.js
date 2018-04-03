@@ -36,9 +36,9 @@ class InternalError extends Json2RPCError {
 
 class SDKError extends Json2RPCError {
     constructor(rid, data) {
-        super(-32604, "Fabric sdk error", data)
+        super(-32604, "Sdk error", data)
         this.rid = rid
     }
 }
 
-module.exports = {Json2RPCError, InvalidRequestError, MethodNotFoundError, InvalidParamsError, InternalError}
+module.exports = { Json2RPCError, InvalidRequestError, MethodNotFoundError, InvalidParamsError, InternalError, SDKError}
