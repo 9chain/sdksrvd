@@ -191,7 +191,7 @@ class Sdk {
             var writes = data.actions[0].payload.action.proposal_response_payload.extension.results.ns_rwset[1].rwset.writes
 
             var result = []
-            if (subChannel !== undefined && subChannel !== "" && key !== undefined && key !== "") {
+            if (writes !== undefined && subChannel !== undefined && subChannel !== "" && key !== undefined && key !== "") {
                 key = subChannel + "_" + key
                 for (let i = 0; i < writes.length; ++i) {
                     var write = writes[i]
