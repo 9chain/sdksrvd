@@ -42,12 +42,12 @@ class Sdk {
 
     getChannel(channel) {
         channel = channel || FabricCfg.DefaultChannel
-        return this.channelMap[channel].channel;
+        return this.channelMap.get(channel).channel;
     }
 
     getEventHubs(channel) {
         channel = channel || FabricCfg.DefaultChannel
-        return this.channelMap[channel].eventhubs;
+        return this.channelMap.get(channel).eventhubs;
     }
 
     async getMember(username, password, userOrg) {
@@ -96,10 +96,10 @@ class Sdk {
     }
 
     async initChannel(channel, userOrg) {
-        this.channelMap[channel] = {
+        this.channelMap.set(channel, {
             channel: this.client.newChannel(channel),
             eventhubs: []
-        }
+        })
 
         var caRootsPath = ORGS.orderer.tls_cacerts;
         let caData = fs.readFileSync(caRootsPath)
@@ -184,14 +184,31 @@ class Sdk {
         return this.client.newTransactionID();
     }
 
-    queryTransaction(channel, txId) {
+    queryTransaction(channel, txId, key, subChannel) {
         return this.getChannel(channel).queryTransaction(txId).then((processTrans) => {
             var header = processTrans['transactionEnvelope']['payload']['header']
+            var data = processTrans['transactionEnvelope']['payload']['data']
+            var writes = data.actions[0].payload.action.proposal_response_payload.extension.results.ns_rwset[1].rwset.writes
+
+            var result = []
+            if (subChannel !== undefined && subChannel !== "" && key !== undefined && key !== "") {
+                key = subChannel + "_" + key
+                for (let i = 0; i < writes.length; ++i) {
+                    var write = writes[i]
+                    if (key === write.key) {
+                        result.push({ write })
+                    }
+                }
+            } else {
+                result = writes
+            }
+
             return {
                 'tx_id': header.channel_header.tx_id,
                 'timestamp': header.channel_header.timestamp,
                 'channel_id': header.channel_header.channel_id,
                 'type': BlockDecoder.HeaderType.convertToString(header.channel_header.type),
+                'data': result
             }
         }, (err) => {
             logger.error('Failed to send query transaction due to error: ' + err.stack ? err.stack : err);

@@ -60,7 +60,13 @@ class Dispatcher {
             args: [params.key]
         };
         const r = await this.sdk.queryChaincode(params.channel, request)
-        return JSON.parse(r)
+        var result = JSON.parse(r)
+
+        for (let i = 0; i < result.length; ++i) {
+            delete result.value
+        }
+
+        return result
     }
 
     async state(ctx, params) {
@@ -75,8 +81,8 @@ class Dispatcher {
     }
 
     async queryTransaction(ctx, params) {
-        console.log("txId", params.tx_id)
-        return await this.sdk.queryTransaction(params.channel, params.tx_id)
+        console.log("params: ", params)
+        return await this.sdk.queryTransaction(params.channel, params.tx_id, params.key, params.sub_channel)
     }
 }
 

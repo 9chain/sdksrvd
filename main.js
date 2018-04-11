@@ -7,8 +7,8 @@ const log = require("winston")
 
 const { Sdk } = require("./sdk.js")
 const { Dispatcher } = require("./handlers")
-const { Json2RPCError } = require("./exception")
-const { ApiKeyMap, AppCfg, WinstonCfg, FabricCfg, SDKError } = require("./config")
+const { Json2RPCError, SDKError } = require("./exception")
+const { ApiKeyMap, AppCfg, WinstonCfg, FabricCfg } = require("./config")
 
 log.configure(WinstonCfg)
 
