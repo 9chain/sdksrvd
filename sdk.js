@@ -191,16 +191,18 @@ class Sdk {
             var writes = data.actions[0].payload.action.proposal_response_payload.extension.results.ns_rwset[1].rwset.writes
 
             var result = []
-            if (writes !== undefined && subChannel !== undefined && subChannel !== "" && key !== undefined && key !== "") {
-                key = subChannel + "_" + key
+            if (writes) {
                 for (let i = 0; i < writes.length; ++i) {
                     var write = writes[i]
-                    if (key === write.key) {
+                    var pos = write.key.indexOf(subChannel);
+                    if (pos > 0) {
+                        write.key = write.key.substr(subChannel.length+1);
+                    }
+
+                    if (!key || key === write.key) {
                         result.push({ write })
                     }
                 }
-            } else {
-                result = writes
             }
 
             return {

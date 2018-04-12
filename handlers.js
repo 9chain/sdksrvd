@@ -61,9 +61,11 @@ class Dispatcher {
         };
         const r = await this.sdk.queryChaincode(params.channel, request)
         var result = JSON.parse(r)
-
-        for (let i = 0; i < result.length; ++i) {
-            delete result.value
+        
+        if (result && result instanceof Array) {
+            for (let i = 0; i < result.length; ++i) {
+                delete result.value
+            }
         }
 
         return result
