@@ -195,7 +195,7 @@ class Sdk {
                 for (let i = 0; i < writes.length; ++i) {
                     var write = writes[i]
                     var pos = write.key.indexOf(subChannel);
-                    if (pos > 0) {
+                    if (pos >= 0) {
                         write.key = write.key.substr(subChannel.length+1);
                     }
 
