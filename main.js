@@ -191,6 +191,12 @@ app.post('/v1/test', urlencodedParser, bodyParser.json(), async (request, respon
             const resp = { "jsonrpc": "2.0", "id": id, "error": err.error }
             return response.send(resp)
         }
+
+        if (err instanceof SDKError) {
+            const resp = { "jsonrpc": "2.0", "id": id, "error": err.error }
+            return response.send(resp)
+        }
+
         return response.send(err.message).status(400)
     }
 })

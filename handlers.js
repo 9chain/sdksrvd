@@ -1,4 +1,3 @@
-
 const log = require("winston")
 
 //const { Sdk } = require("./sdk.js")
@@ -11,7 +10,70 @@ class Dispatcher {
         this.sdk = sdk
     }
 
+    dispatch2(ctx, method, params) {
+        switch (method) {
+            case "transfer":
+                return this.invoke_common(ctx, method, params)
+            case "history":
+                return this.query2(ctx, method, params)
+            case "state":
+                return this.query2(ctx, method, params)
+            case "init_asset":
+                return this.invoke_common(ctx, method, params)    
+            default:
+                throw new MethodNotFoundError(method)
+        }
+    }
+
+    async invoke_common(ctx, method, params){
+        const txId = this.sdk.newTransactionID();
+        log.debug('New TransactionID = %s', txId.getTransactionID())
+        const request = {
+            chaincodeId : params["contract"],
+            fcn: method,
+            args: params["args"],
+            txId: txId,
+        };
+
+        const result = await this.sdk.invokeChaincode2(params.rid, params.channel, request)
+        return result
+    }
+
+    async invoke2(ctx, chaincodeId,  params) {
+        const txId = this.sdk.newTransactionID();
+        log.debug('New TransactionID = %s', txId.getTransactionID())
+        console.log(params)
+        const request = {
+            chaincodeId,
+            fcn: "transfer",
+            args: params["args"],
+            txId: txId,
+        };
+
+        const result = await this.sdk.invokeChaincode(params.rid, params.channel, request)
+        return result
+    }
+
+    async query2(ctx, method, params) {
+        console.log("key", params)
+
+        const request = {
+            chaincodeId : params["contract"],
+            fcn: method,
+            args: params["args"],
+        }
+
+            const r = await this.sdk.queryChaincode2(params.channel, request)
+            var result = JSON.parse(r)
+            return result  
+
+    }
+
     dispatch(ctx, method, params) {
+        if (params["contract"]) {
+            return this.dispatch2(ctx, method, params)
+        }
+
         switch (method) {
             case "create":
                 return this.invoke(ctx, params)
