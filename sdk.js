@@ -205,9 +205,12 @@ class Sdk {
                 }
             }
 
+            var timestamp = Date.parse(new Date(header.channel_header.timestamp));
+            timestamp = timestamp/1000;
+
             return {
                 'tx_id': header.channel_header.tx_id,
-                'timestamp': header.channel_header.timestamp,
+                'timestamp': timestamp,
                 'channel_id': header.channel_header.channel_id,
                 'type': BlockDecoder.HeaderType.convertToString(header.channel_header.type),
                 'data': result
