@@ -222,7 +222,8 @@ class Sdk {
     }
 
     queryChaincode(channel, reqParam) {
-        return this.getChannel(channel).queryByChaincode(reqParam).then((response_payloads) => {
+        const chn = this.getChannel(channel)
+        return chn.queryByChaincode(reqParam).then((response_payloads) => {
             if (response_payloads) {
                 for (let i = 0; i < response_payloads.length; i++) {
                     logger.debug(response_payloads[i].toString('utf8'))
@@ -241,6 +242,23 @@ class Sdk {
         });
     }
 
+    async queryChaincode2(channel, reqParam) {
+        const chn = this.getChannel(channel)
+    
+        const response_payloads = await chn.queryByChaincode(reqParam)
+        if (response_payloads && response_payloads.length > 0) {
+            const resp = response_payloads[0]
+            if (resp["details"]) {
+                throw new SDKError('undefine', resp["details"])
+            }
+           
+            logger.error('response_payloads return null');
+            return resp.toString('utf8')
+        } else {
+            logger.error('response_payloads is null');
+            throw new SDKError('undefine', 'Failed to get response on query');
+        }
+    }
     invokeChaincode(rid, channel, reqParam) {
         var tx_id = reqParam.txId
         logger.debug(' orglist:: ', this.getChannel(channel).getOrganizations());
@@ -348,6 +366,75 @@ class Sdk {
             logger.error('Failed to send transaction due to error: ' + err.stack ? err.stack : err);
             throw new SDKError(rid, 'Failed to send transaction due to error: ' + err);
         });
+    }
+
+    async invokeChaincode2(rid, channel, reqParam) {
+        const tx_id = reqParam.txId
+
+        const chn = this.getChannel(channel)
+        const results = await chn.sendTransactionProposal(reqParam)
+        const proposalResponses = results[0]
+        const proposal = results[1]
+        const all_good = true
+
+        for (let r of proposalResponses) { 
+            if (!(r.response && r.response.status === 200)) {
+                const details = r["details"]
+                throw new SDKError(rid, 'Proposal error: ' + details)
+            }
+        }
+
+        if (!await chn.compareProposalResponseResults(proposalResponses)) {
+            const msg = 'All proposals do not have matching read/write sets'
+            logger.error(msg)
+            throw new SDKError(rid, 'Proposal error: ' + msg)
+        }
+
+        const request = {proposal, proposalResponses}
+
+        const deployId = tx_id.getTransactionID()
+        let eventPromises = []
+
+        const eventhubs = this.getEventHubs(channel)
+        eventhubs.forEach((eh) => {
+            let txPromise = new Promise((resolve, reject) => {
+                const id = deployId.toString()
+                let timer = setTimeout(() => {
+                    eh.unregisterTxEvent(id)
+                    reject("timeout")
+                }, 120000)
+
+                eh.registerTxEvent(id, (tx, code) => {
+                        logger.debug("on tx event", tx, code, eh.getPeerAddr())
+
+                        clearTimeout(timer)
+                        eh.unregisterTxEvent(id)
+
+                        console.log("tx--------------------", tx, code)
+
+                        if (code !== 'VALID') {
+                            return reject(code)
+                        }
+                        
+                        resolve()
+                    }, err => {
+                        eh.unregisterTxEvent(id)
+                        clearTimeout(timer)
+                        
+                        logger.error('on tx event error. but regard as success', id, err.message)
+                        resolve()
+                    }
+                )
+            })
+
+            eventPromises.push(txPromise)
+        })
+
+        const sendPromise = chn.sendTransaction(request)
+
+        const res = await Promise.all([sendPromise].concat(eventPromises))
+
+        return { 'rid': rid, 'response': res, 'txId': deployId }
     }
 }
 
