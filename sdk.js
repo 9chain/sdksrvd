@@ -311,7 +311,10 @@ class Sdk {
                 var eventPromises = [];
                 this.getEventHubs(channel).forEach((eh) => {
                     let txPromise = new Promise((resolve, reject) => {
-                        let handle = setTimeout(reject, 120000);
+                        let handle = setTimeout(() => {
+                            eh.unregisterTxEvent(deployId)
+                            reject("timeout")
+                        }, 120000)
 
                         eh.registerTxEvent(deployId.toString(),
                             (tx, code) => {
@@ -328,6 +331,7 @@ class Sdk {
                             },
                             (err) => {
                                 clearTimeout(handle);
+                                eh.unregisterTxEvent(deployId);
                                 logger.debug('Successfully received notification of the event call back being cancelled for ' + deployId);
                                 resolve();
                             }
