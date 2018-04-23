@@ -1,39 +1,39 @@
 
-var path = require('path');
-var fs = require('fs');
-var util = require('util');
-var os = require('os');
+const path = require('path');
+const fs = require('fs');
+const util = require('util');
+const os = require('os');
 
-var utils = require('fabric-client/lib/utils.js');
-var copService = require('fabric-ca-client/lib/FabricCAClientImpl.js');
-var CryptoSuite = require('fabric-client/lib/impl/CryptoSuite_ECDSA_AES.js');
-var KeyStore = require('fabric-client/lib/impl/CryptoKeyStore.js');
-var ecdsaKey = require('fabric-client/lib/impl/ecdsa/key.js');
+const utils = require('fabric-client/lib/utils.js');
+const copService = require('fabric-ca-client/lib/FabricCAClientImpl.js');
+const CryptoSuite = require('fabric-client/lib/impl/CryptoSuite_ECDSA_AES.js');
+const KeyStore = require('fabric-client/lib/impl/CryptoKeyStore.js');
+const ecdsaKey = require('fabric-client/lib/impl/ecdsa/key.js');
 const BlockDecoder = require('fabric-client/lib/BlockDecoder.js');
-var User = require('fabric-client/lib/User.js');
+const User = require('fabric-client/lib/User.js');
 
 const logger = require("winston")
 const { SDKError } = require("./exception")
 const { FabricCfg } = require("./config")
 
-
-var Client = require('fabric-client');
+const Client = require('fabric-client');
 Client.addConfigFile('config.json');
 Client.setConfigSetting('request-timeout', 60000);
 ORGS = Client.getConfigSetting('test-network');
 
 // directory for file based KeyValueStore
-var KVS = path.join(os.tmpdir(), 'hfc', 'hfc-kvs');
+const KVS = path.join(os.tmpdir(), 'hfc', 'hfc-kvs');
 
-var tlsOptions = {
+const tlsOptions = {
     trustedRoots: [],
     verify: false
 };
 
 class Sdk {
     constructor() {
-        this.client = new Client();
-        this.channelMap = new Map();
+        this.client = new Client()
+        this.channelMap = new Map()
+        this.peerMap = new Map()
     }
 
     storePathForOrg(org) {
@@ -42,79 +42,61 @@ class Sdk {
 
     getChannel(channel) {
         channel = channel || FabricCfg.DefaultChannel
-        return this.channelMap.get(channel).channel;
+        return this.channelMap.get(channel).channel
     }
 
     getEventHubs(channel) {
         channel = channel || FabricCfg.DefaultChannel
-        return this.channelMap.get(channel).eventhubs;
+        return this.channelMap.get(channel).eventhubs
     }
 
     async getMember(username, password, userOrg) {
-        var caUrl = ORGS[userOrg].ca.url;
+        const caUrl = ORGS[userOrg].ca.url;
 
-        var user = await this.client.getUserContext(username, true)
+        const user = await this.client.getUserContext(username, true)
+        if (user && user.isEnrolled()) {
+            logger.debug('Successfully loaded member from persistence')
+            return user
+        }
 
-        return new Promise((resolve, reject) => {
-            if (user && user.isEnrolled()) {
-                logger.debug('Successfully loaded member from persistence');
-                return resolve(user);
+        const member = new User(username);
+        let cryptoSuite = this.client.getCryptoSuite();
+        if (!cryptoSuite) {
+            cryptoSuite = Client.newCryptoSuite();
+            if (userOrg) {
+                cryptoSuite.setCryptoKeyStore(Client.newCryptoKeyStore({ path: this.storePathForOrg(ORGS[userOrg].name) }));
+                this.client.setCryptoSuite(cryptoSuite);
             }
-
-            var member = new User(username);
-            var cryptoSuite = this.client.getCryptoSuite();
-            if (!cryptoSuite) {
-                cryptoSuite = Client.newCryptoSuite();
-                if (userOrg) {
-                    cryptoSuite.setCryptoKeyStore(Client.newCryptoKeyStore({ path: this.storePathForOrg(ORGS[userOrg].name) }));
-                    this.client.setCryptoSuite(cryptoSuite);
-                }
-            }
-            member.setCryptoSuite(cryptoSuite);
-
-            // need to enroll it with CA server
-            var cop = new copService(caUrl, tlsOptions, ORGS[userOrg].ca.name, cryptoSuite);
-
-            return cop.enroll({
-                enrollmentID: username,
-                enrollmentSecret: password
-            }).then((enrollment) => {
-                logger.debug('Successfully enrolled user \'' + username + '\'');
-                return member.setEnrollment(enrollment.key, enrollment.certificate, ORGS[userOrg].mspid);
-            }).then(() => {
-                var skipPersistence = false;
-                if (!this.client.getStateStore()) {
-                    skipPersistence = true;
-                }
-                return this.client.setUserContext(member, skipPersistence);
-            }).then(() => {
-                return resolve(member);
-            }).catch((err) => {
-                logger.error('Failed to enroll and persist user. Error: ' + err.stack ? err.stack : err);
-            });
-        });
+        }
+        member.setCryptoSuite(cryptoSuite);
+        const cop = new copService(caUrl, tlsOptions, ORGS[userOrg].ca.name, cryptoSuite);
+        const enrollment = await cop.enroll({enrollmentID: username, enrollmentSecret: password})
+        await member.setEnrollment(enrollment.key, enrollment.certificate, ORGS[userOrg].mspid)
+        let skipPersistence = false
+        if (!this.client.getStateStore()) {
+            skipPersistence = true;
+        }
+        await this.client.setUserContext(member, skipPersistence);
+        return member
     }
-
+    
     async initChannel(channel, userOrg) {
-        this.channelMap.set(channel, {
-            channel: this.client.newChannel(channel),
-            eventhubs: []
-        })
+        this.channelMap.set(channel, {channel: this.client.newChannel(channel),eventhubs: []})
 
-        var caRootsPath = ORGS.orderer.tls_cacerts;
+        var caRootsPath = ORGS.orderer.tls_cacerts
         let caData = fs.readFileSync(caRootsPath)
-        let caroots = Buffer.from(caData).toString();
+        let caroots = Buffer.from(caData).toString()
 
-        this.getChannel(channel).addOrderer(
-            this.client.newOrderer(
-                ORGS.orderer.url,
-                {
-                    'pem': caroots,
-                    'ssl-target-name-override': ORGS.orderer['server-hostname']
-                }
-            )
-        );
+        const newOrder = this.client.newOrderer(ORGS.orderer.url,
+            {
+                'pem': caroots,
+                'ssl-target-name-override': ORGS.orderer['server-hostname']
+            }
+        )
 
+        const chn = this.getChannel(channel)
+        chn.addOrderer(newOrder)
+        
         const admin = await this.getMember('admin', 'adminpw', userOrg)
 
         // set up the channel to use each org's 'peer1' for
@@ -122,81 +104,96 @@ class Sdk {
         for (let key in ORGS) {
             if (ORGS.hasOwnProperty(key) && typeof ORGS[key].peer1 !== 'undefined') {
                 let data = fs.readFileSync(ORGS[key].peer1['tls_cacerts'])
-                let peer = this.client.newPeer(
-                    ORGS[key].peer1.requests,
-                    {
+                let peer = this.client.newPeer(ORGS[key].peer1.requests, {
                         pem: Buffer.from(data).toString(),
                         'ssl-target-name-override': ORGS[key].peer1['server-hostname']
                     }
-                );
-                this.getChannel(channel).addPeer(peer);
+                )
+                chn.addPeer(peer)
+                this.peerMap.set(key, peer)
             }
         }
 
         // an event listener can only register with a peer in its own org
         let data = fs.readFileSync(ORGS[userOrg].peer1['tls_cacerts'])
-        let eh = this.client.newEventHub();
-        eh.setPeerAddr(
-            ORGS[userOrg].peer1.events,
-            {
+        let eh = this.client.newEventHub()
+        eh.setPeerAddr(ORGS[userOrg].peer1.events, {
                 pem: Buffer.from(data).toString(),
                 'ssl-target-name-override': ORGS[userOrg].peer1['server-hostname'],
                 'grpc.http2.keepalive_time': 15
             }
-        );
+        )
 
-        eh.connect();
-        this.getEventHubs(channel).push(eh);
-        return this.getChannel(channel).initialize();
+        eh.connect()
+        this.getEventHubs(channel).push(eh)
+        return chn.initialize()
+    }
+
+    getOnePeer() {
+        for (let [k, v] of this.peerMap) {
+            return v 
+        }
     }
 
     closeChannel(channel) {
-        var c = this.getChannel(channel)
-        let peers = c.getPeers();
+        const c = this.getChannel(channel)
+        let peers = c.getPeers()
         for (let i in peers) {
-            let peer = peers[i];
-            peer.close();
-        }
-        let orderers = c.getOrderers();
-        for (let i in orderers) {
-            let orderer = orderers[i];
-            orderer.close();
+            let peer = peers[i]
+            peer.close()
         }
 
-        var eventhubs = this.getEventHubs(channel)
-        for (var key in eventhubs) {
-            var eventhub = eventhubs[key];
+        let orderers = c.getOrderers()
+        for (let i in orderers) {
+            let orderer = orderers[i]
+            orderer.close()
+        }
+
+        const eventhubs = this.getEventHubs(channel)
+        for (let key in eventhubs) {
+            const eventhub = eventhubs[key]
             if (eventhub && eventhub.isconnected()) {
-                logger.debug('Disconnecting the event hub');
-                eventhub.disconnect(); //this will also close the connection
+                logger.debug('Disconnecting the event hub')
+                eventhub.disconnect() //this will also close the connection
             }
         }
     }
 
     close() {
         // all done, shutdown connections on all
-        for (var key in this.channelMap) {
+        for (let key in this.channelMap) {
             this.closeChannel(key)
         }
     }
 
     newTransactionID() {
-        return this.client.newTransactionID();
+        return this.client.newTransactionID()
     }
 
-    queryTransaction(channel, txId, key, subChannel) {
-        return this.getChannel(channel).queryTransaction(txId).then((processTrans) => {
-            var header = processTrans['transactionEnvelope']['payload']['header']
-            var data = processTrans['transactionEnvelope']['payload']['data']
-            var writes = data.actions[0].payload.action.proposal_response_payload.extension.results.ns_rwset[1].rwset.writes
+    async queryTransaction(channel, request) {
+        const {chaincodeId, fcn, args} = request
+        // ["1", "sub","b4dbc6c26c18503d5fb87a3bdd6d08bd195bf44b8d1b93368a261058bc85459a", "key2"]
+        const subChannel = args[1]
+        const txId = args[2]
+        const key = args[3]
+        
+        const chn = this.getChannel(channel)
 
-            var result = []
+        try {
+            const processTrans = await chn.queryTransaction(txId)
+            const header = processTrans['transactionEnvelope']['payload']['header']
+            const data = processTrans['transactionEnvelope']['payload']['data']
+
+            const writes = data.actions[0].payload.action.proposal_response_payload.extension.results.ns_rwset[1].rwset.writes
+       
+            const result = []
+
             if (writes) {
-                for (let i = 0; i < writes.length; ++i) {
-                    var write = writes[i]
-                    var pos = write.key.indexOf(subChannel);
+                for (let write of writes) {
+                    const fullKey = write.key
+                    const pos = fullKey.indexOf(subChannel);
                     if (pos >= 0) {
-                        write.key = write.key.substr(subChannel.length+1);
+                        write.key = fullKey.substr(subChannel.length)
                     }
 
                     if (!key || key === write.key) {
@@ -204,175 +201,45 @@ class Sdk {
                     }
                 }
             }
-
-            var timestamp = Date.parse(new Date(header.channel_header.timestamp));
+            let timestamp = Date.parse(new Date(header.channel_header.timestamp));
             timestamp = timestamp/1000;
 
             return {
                 'tx_id': header.channel_header.tx_id,
                 'timestamp': timestamp,
-                'channel_id': header.channel_header.channel_id,
                 'type': BlockDecoder.HeaderType.convertToString(header.channel_header.type),
                 'data': result
             }
-        }, (err) => {
-            logger.error('Failed to send query transaction due to error: ' + err.stack ? err.stack : err);
-            throw new SDKError('undefine', 'Failed, got error on query transaction:' + err);
-        });
-    }
+        } catch(err) {
+            logger.error('QueryTransaction fail:' + err.stack ? err.stack : err)
 
-    queryChaincode(channel, reqParam) {
-        const chn = this.getChannel(channel)
-        return chn.queryByChaincode(reqParam).then((response_payloads) => {
-            if (response_payloads) {
-                for (let i = 0; i < response_payloads.length; i++) {
-                    logger.debug(response_payloads[i].toString('utf8'))
-                    if (i === 0)
-                        return response_payloads[i].toString('utf8')
-                }
-                logger.error('response_payloads return null');
-                throw new SDKError('undefine', 'Get response return null');
-            } else {
-                logger.error('response_payloads is null');
-                throw new SDKError('undefine', 'Failed to get response on query');
+            const {code, details} = err
+            if (code && details) {
+                throw new SDKError('undefine', 'QueryTransaction fail:' + details)
             }
-        }, (err) => {
-            logger.error('Failed to send query due to error: ' + err.stack ? err.stack : err);
-            throw new SDKError('undefine', 'Failed, got error on query:' + err);
-        });
+
+ 
+            throw new SDKError('undefine', 'QueryTransaction fail:' + err.message)
+        }
     }
 
-    async queryChaincode2(channel, reqParam) {
+    async queryChaincode(channel, reqParam) {
         const chn = this.getChannel(channel)
-    
         const response_payloads = await chn.queryByChaincode(reqParam)
         if (response_payloads && response_payloads.length > 0) {
             const resp = response_payloads[0]
             if (resp["details"]) {
                 throw new SDKError('undefine', resp["details"])
             }
-           
-            logger.error('response_payloads return null');
+
             return resp.toString('utf8')
         } else {
             logger.error('response_payloads is null');
             throw new SDKError('undefine', 'Failed to get response on query');
         }
     }
-    invokeChaincode(rid, channel, reqParam) {
-        var tx_id = reqParam.txId
-        logger.debug(' orglist:: ', this.getChannel(channel).getOrganizations());
-
-        return this.getChannel(channel).sendTransactionProposal(reqParam).then((results) => {
-            var proposalResponses = results[0];
-            var proposal = results[1];
-            var all_good = true;
-
-            for (var i in proposalResponses) {
-                let one_good = false;
-                let proposal_response = proposalResponses[i];
-                if (proposal_response.response && proposal_response.response.status === 200) {
-                    logger.debug('transaction proposal has response status of good');
-                    one_good = this.getChannel(channel).verifyProposalResponse(proposal_response);
-                    if (one_good) {
-                        logger.debug(' transaction proposal signature and endorser are valid');
-                    }
-                } else {
-                    logger.error('transaction proposal was bad');
-                }
-                all_good = all_good & one_good;
-            }
-            if (all_good) {
-                // check all the read/write sets to see if the same, verify that each peer
-                // got the same results on the proposal
-                all_good = this.getChannel(channel).compareProposalResponseResults(proposalResponses);
-                logger.debug('compareProposalResponseResults exection did not throw an error');
-                if (all_good) {
-                    logger.debug(' All proposals have a matching read/writes sets');
-                }
-                else {
-                    logger.error(' All proposals do not have matching read/write sets');
-                }
-            }
-            if (all_good) {
-                // check to see if all the results match
-                logger.debug('Successfully sent Proposal and received ProposalResponse');
-                logger.debug(util.format('Successfully sent Proposal and received ProposalResponse: Status - %s, message - "%s", metadata - "%s", endorsement signature: %s', proposalResponses[0].response.status, proposalResponses[0].response.message, proposalResponses[0].response.payload, proposalResponses[0].endorsement.signature));
-                var request = {
-                    proposalResponses: proposalResponses,
-                    proposal: proposal
-                };
-
-                // set the transaction listener and set a timeout of 30sec
-                // if the transaction did not get committed within the timeout period,
-                // fail the test
-                var deployId = tx_id.getTransactionID();
-
-                var eventPromises = [];
-                this.getEventHubs(channel).forEach((eh) => {
-                    let txPromise = new Promise((resolve, reject) => {
-                        let handle = setTimeout(() => {
-                            eh.unregisterTxEvent(deployId)
-                            reject("timeout")
-                        }, 120000)
-
-                        eh.registerTxEvent(deployId.toString(),
-                            (tx, code) => {
-                                clearTimeout(handle);
-                                eh.unregisterTxEvent(deployId);
-
-                                if (code !== 'VALID') {
-                                    logger.error('The balance transfer transaction was invalid, code = ' + code);
-                                    reject();
-                                } else {
-                                    logger.debug('The balance transfer transaction has been committed on peer ' + eh.getPeerAddr());
-                                    resolve();
-                                }
-                            },
-                            (err) => {
-                                clearTimeout(handle);
-                                eh.unregisterTxEvent(deployId);
-                                logger.debug('Successfully received notification of the event call back being cancelled for ' + deployId);
-                                resolve();
-                            }
-                        );
-                    });
-
-                    eventPromises.push(txPromise);
-                });
-
-                var sendPromise = this.getChannel(channel).sendTransaction(request);
-                return Promise.all([sendPromise].concat(eventPromises))
-                    .then((results) => {
-                        logger.debug(' event promise all complete and testing complete');
-                        return results[0]; // the first returned value is from the 'sendPromise' which is from the 'sendTransaction()' call
-                    }).catch((err) => {
-                        logger.error('Failed to send transaction and get notifications within the timeout period.');
-                        throw new SDKError(rid, 'Failed to send transaction and get notifications within the timeout period.');
-                    });
-            } else {
-                logger.error('Failed to send Proposal or receive valid response. Response null or status is not 200. exiting...');
-                throw new SDKError(rid, 'Failed to send Proposal or receive valid response. Response null or status is not 200. exiting...');
-            }
-        }, (err) => {
-            logger.error('Failed to send proposal due to error: ' + err.stack ? err.stack : err);
-            throw new SDKError(rid, 'Failed to send proposal due to error: ' + err);
-        }).then((response) => {
-            if (response.status === 'SUCCESS') {
-                logger.debug('Successfully sent transaction to the orderer. TX_ID=' + '\'' + tx_id.getTransactionID() + '\'');
-                logger.debug('invokeChaincode end');
-                return { 'rid': rid, 'response': response, 'txId': tx_id.getTransactionID() };
-            } else {
-                logger.error('Failed to order the transaction. Error code: ' + response.status);
-                throw new SDKError(rid, 'Failed to order the transaction. Error code: ' + response.status);
-            }
-        }, (err) => {
-            logger.error('Failed to send transaction due to error: ' + err.stack ? err.stack : err);
-            throw new SDKError(rid, 'Failed to send transaction due to error: ' + err);
-        });
-    }
-
-    async invokeChaincode2(rid, channel, reqParam) {
+    
+    async invokeChaincode(rid, channel, reqParam) {
         const tx_id = reqParam.txId
 
         const chn = this.getChannel(channel)
@@ -389,7 +256,7 @@ class Sdk {
         }
 
         if (!await chn.compareProposalResponseResults(proposalResponses)) {
-            const msg = 'All proposals do not have matching read/write sets'
+            const msg = 'Not all proposals matching read/write sets'
             logger.error(msg)
             throw new SDKError(rid, 'Proposal error: ' + msg)
         }
@@ -405,19 +272,15 @@ class Sdk {
                 const id = deployId.toString()
                 let timer = setTimeout(() => {
                     eh.unregisterTxEvent(id)
-                    reject("timeout")
-                }, 120000)
+                    reject("Timeout to recv event")
+                }, 600 * 1000)
 
                 eh.registerTxEvent(id, (tx, code) => {
-                        logger.debug("on tx event", tx, code, eh.getPeerAddr())
-
                         clearTimeout(timer)
                         eh.unregisterTxEvent(id)
 
-                        console.log("tx--------------------", tx, code)
-
                         if (code !== 'VALID') {
-                            return reject(code)
+                            return reject("Event was not VALID: " + id)
                         }
                         
                         resolve()
@@ -426,7 +289,8 @@ class Sdk {
                         clearTimeout(timer)
                         
                         logger.error('on tx event error. but regard as success', id, err.message)
-                        resolve()
+                        const msg = "Event error: " + err.message
+                        reject(msg)
                     }
                 )
             })
@@ -435,10 +299,14 @@ class Sdk {
         })
 
         const sendPromise = chn.sendTransaction(request)
-
-        const res = await Promise.all([sendPromise].concat(eventPromises))
-
-        return { 'rid': rid, 'response': res, 'txId': deployId }
+        try {
+            const res = await Promise.all([sendPromise].concat(eventPromises))
+            const r = res[0]
+            return { 'rid': rid, 'info': r["info"], "status":r["status"], 'txId': deployId }
+        }catch(e) {
+            log.error("sendTransaction fail " + e.message)
+            throw new SDKError(rid, 'sendTransaction fail: ' + e.message);
+        }
     }
 }
 

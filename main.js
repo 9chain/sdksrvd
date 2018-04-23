@@ -1,9 +1,8 @@
-
 const http = require('http')
-const WebSocket = require('ws')
 const assert = require("assert")
 const express = require('express')
 const log = require("winston")
+const EventEmitter = require('events')
 
 const { Sdk } = require("./sdk.js")
 const { Dispatcher } = require("./handlers")
@@ -16,158 +15,149 @@ const app = express()
 const server = http.createServer(app)
 
 const bodyParser = require('body-parser')
-var urlencodedParser = bodyParser.urlencoded({ extended: false })
+const urlencodedParser = bodyParser.urlencoded({ extended: false })
 
 const sdk = new Sdk()
 const dispather = new Dispatcher(sdk)
-const clients = new Map() // {[apikey]: {wsc: wsc, other = ...}}
 
+const userMap = new Map()
+const doneEmitter = new EventEmitter()
 
+class ReqSt {
+    constructor(id, ext) {
+        this.id = id
+        this.ext = ext
+        this.start = uptime()
+        this.done = undefined
+        this.result = undefined
+        this.error = undefined
+    }
+}
 
-const wsServer = new WebSocket.Server({
-    server,
-    path: "/v1/ws",
-    verifyClient: (info, done) => {
-        // 认证检查, apiKey
-        const apiKey = info.req.headers["x-api-key"]
-        if (!apiKey) {
-            return done()
+function uptime() {
+    return process.hrtime()[0]
+}
+
+async function doPush(userKey, params) {
+    const {id, channel, contract, method, args, ext} = params
+    if (!userMap.has(userKey)) {
+        userMap.set(userKey, [])
+    }
+
+    let obj = new ReqSt(id, ext)
+    try {
+        obj.result = await dispather.dispatch({}, method, params)
+    } catch(e) {
+        if (e instanceof Json2RPCError) {
+            obj.error = e.error
+        } else {
+            obj.error = e.message
+        }
+    }
+    obj.done = uptime()
+
+    let arr = userMap.get(userKey) 
+    arr.push(obj)
+    userMap.set(userKey, arr)
+
+    doneEmitter.emit(userKey)
+}
+
+function doPull(userKey, params) {
+    let {max, timeout} = params
+    timeout = timeout * 1000
+    isEmpty = function() {
+        let arr = userMap.get(userKey)
+        return !(arr && arr.length > 0)
+    }
+
+    return new Promise(resolve => {
+        let take, timer
+        take = function() {
+            if (isEmpty()) {
+                return
+            }
+
+            const result = []
+            let arr = userMap.get(userKey)
+            const len = max > arr.length ? arr.length : max
+            for (let i = 0 ; i < len; i++) {
+                const obj = arr.shift()
+                result.push(obj)
+            }
+        
+            userMap.set(userKey, arr)
+
+            if (timer) {
+                clearTimeout(timer)
+            }
+            doneEmitter.removeListener(userKey, take)
+            return resolve(result)
         }
 
-        if (!ApiKeyMap.has(apiKey)) {
-            return done()
-        }
+        doneEmitter.on(userKey, take)
 
-        if (clients.has(apiKey)) {
-            // alreay exists 
-            return done()
+        if (!isEmpty()) {
+            doneEmitter.emit(userKey)
+        } else {
+            timer = setTimeout(() => {
+                doneEmitter.removeListener(userKey, take)
+                return resolve([])
+            }, timeout)
         }
+    })
+}
 
-        done(apiKey)
-    },
+app.post('/sdk/v2', urlencodedParser, bodyParser.json(), async (request, response) => {
+    const userKey = request.headers["x-api-key"]
+    if (!userKey) {   // verifyClient已经检查过，这里不应该进来　
+        return response.send("invalid apiKey").status(400)
+    }
+
+    const { id: jsid, method, params } = request.body
+    if (!(jsid != undefined && method && params)) {
+        return response.send("invalid json2rpc").status(400)
+    }
+    try {
+        switch(method) {
+            case "push":
+                const {id, channel, contract, method, args, ext} = params
+                if (!(id && channel && contract && method && args)) {
+                    return response.send("invalid params").status(400)
+                }
+
+                doPush(userKey, params)
+                return response.send({ "jsonrpc": "2.0", "id": jsid, "result": {"message": "cache ok"} }) 
+            case "pull":
+                let {max: originMax, timeout} = params
+                let max = originMax
+
+                if (!(originMax && (originMax >=1 && originMax <= 100))) {
+                    max = 1
+                }
+
+                if (!(timeout && "number" == typeof originMax && (originMax >=1 && originMax <= 100 ))) {
+                    timeout = 5
+                }
+
+                const arr = await doPull(userKey, {max, timeout})
+                let resarr = []
+
+                for (let obj of arr) {
+                    console.log("resp", userKey, obj.id)
+                    resarr.push({"id": obj.id, "result": obj.result, "error": obj.error})
+                }
+                return response.send({ "jsonrpc": "2.0", "id": jsid, "result": resarr })
+            default:
+                console.log("invalid method")
+                return response.send("invalid param").status(400)
+        }
+    } catch(e) {
+        console.log("invalid method", e.message)
+        return response.send(e.message).status(400)
+    }    
 })
 
-// logical check
-function checkApiKey(apiKey) {
-    assert(apiKey)
-
-    if (!clients.has(apiKey)) {
-        console.error("why miss apiKey", apiKey)
-        return false
-    }
-
-    const wsc = ctx.wsc
-    assert(ctx.wsc)
-
-    return true
-}
-
-function sendResult(ctx, resp) {
-    if (!checkApiKey(ctx.apiKey)) {
-        return
-    }
-
-    ctx.wsc.send(JSON.stringify(resp), err => {
-        if (err) {  // 发送失败，关闭连接
-            wsc.close()
-            console.log("send fail", err)
-        }
-    })
-}
-
-async function onMessage(ctx, message, req) {
-
-    if (!checkApiKey(ctx.apiKey)) {
-        return
-    }
-
-    const wsc = ctx.wsc
-
-    if (typeof message != "string") {   //　非法消息，关闭连接　
-        return wsc.close()
-    }
-
-    let id, method, params
-
-    // 解析参数
-    try {
-        const j = JSON.parse(message)
-
-        id = j.id
-        method = j.method
-        params = j.params
-
-        if (!(method && params)) {      //　非法消息，关闭连接　
-            wsc.close()
-            return
-        }
-    } catch (err) {     //　非法消息，关闭连接　
-        console.error(err.message)
-        return wsc.close()
-    }
-
-    try {
-        // 处理消息
-        const res = await dispather.dispatch(ctx, method, params)
-        if (!id) {  //　没有发送id, 不回复
-            return
-        }
-
-        // 回复结果　
-        return sendResult(ctx, { "jsonrpc": "2.0", "id": id, "result": res })
-    } catch (err) {
-        if (err instanceof Json2RPCError) {
-            // 回复可处理的异常
-            return sendResult(ctx, { "jsonrpc": "2.0", "id": id, "error": err.error })
-        }
-
-        if (err instanceof SDKError) {
-            return sendResult(ctx, { "jsonrpc": "2.0", "id": id, "error": err.error, "rid": err.rid })
-        }
-
-        //　其他异常，关闭连接　
-        console.log("====", err)
-        return wsc.close()
-    }
-}
-
-// 新客户端连接上来，已经通过ApiKey认证
-wsServer.on('connection', (wsc, req) => {
-    const apiKey = req.headers["x-api-key"]
-    if (!apiKey || clients.has(apiKey)) {   // verifyClient已经检查过，这里不应该进来　
-        console.log("logical error!!!")
-        return
-    }
-
-    // 缓存连接context
-    ctx = { "apiKey": apiKey, "wsc": wsc, "active": new Date() }
-    clients.set(apiKey, ctx)
-
-    // 收到新消息
-    wsc.on('message', message => { onMessage(ctx, message, req) })
-
-    //　连接关闭，包括主动和被动关闭。删除缓存中的连接信息
-    wsc.on('close', (code, reason) => {
-        clients.delete(apiKey)
-        console.log("close", apiKey, code, reason)
-    })
-
-    // 错误消息
-    wsc.on('error', err => {
-        console.log("error", apiKey, err)
-    })
-})
-
-/*
-curl localhost:8080/v1/test -H "X-Api-Key: apikey" -H 'content-type:application/json' -d '{       
-  "id": 1,
-  "jsonrpc": "2.0",
-  "params": {
-    "content": "caf975b8a8edfe8d24dc2f78c76711fcebcf00a5f198040c00a9cd892b40fd9"
-  },
-  "method": "invoke"
-}'
-*/
 // 本地测试
 app.post('/v1/test', urlencodedParser, bodyParser.json(), async (request, response) => {
     if (request.ip.indexOf("127.0.0.1") < 0) {   // 本地测试使用，禁止外部连接
@@ -192,20 +182,16 @@ app.post('/v1/test', urlencodedParser, bodyParser.json(), async (request, respon
             return response.send(resp)
         }
 
-        if (err instanceof SDKError) {
-            const resp = { "jsonrpc": "2.0", "id": id, "error": err.error }
-            return response.send(resp)
-        }
-
         return response.send(err.message).status(400)
     }
 })
 
 async function main() {
     try {
-        await sdk.initChannel(FabricCfg.DefaultChannel, FabricCfg.UseOrg);
+        await sdk.initChannel(FabricCfg.DefaultChannel, FabricCfg.UseOrg)
     } catch (err) {
-        log.error(err);
+        log.error(err)
+        process.exit(1)
     }
 
     process.on('SIGINT', function () {

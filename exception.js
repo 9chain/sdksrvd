@@ -21,7 +21,6 @@ class MethodNotFoundError extends Json2RPCError {
     }
 }
 
-
 class InvalidParamsError extends Json2RPCError {
     constructor(data) {
         super(-32602, "Invalid params", data)
