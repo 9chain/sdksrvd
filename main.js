@@ -22,7 +22,7 @@ const dispather = new Dispatcher(sdk)
 
 const userMap = new Map()
 const doneEmitter = new EventEmitter()
-
+doneEmitter.setMaxListeners(50)
 class ReqSt {
     constructor(id, ext) {
         this.id = id
@@ -111,19 +111,20 @@ function doPull(userKey, params) {
 app.post('/sdk/v2', urlencodedParser, bodyParser.json(), async (request, response) => {
     const userKey = request.headers["x-api-key"]
     if (!userKey) {   // verifyClient已经检查过，这里不应该进来　
-        return response.send("invalid apiKey").status(400)
+        return response.status(400).send("invalid apiKey")
     }
-
+    
     const { id: jsid, method, params } = request.body
     if (!(jsid != undefined && method && params)) {
-        return response.send("invalid json2rpc").status(400)
+        return response.status(400).send("invalid json2rpc")
     }
+
     try {
         switch(method) {
             case "push":
                 const {id, channel, contract, method, args, ext} = params
                 if (!(id && channel && contract && method && args)) {
-                    return response.send("invalid params").status(400)
+                    return response.status(400).send("invalid params")
                 }
 
                 doPush(userKey, params)
@@ -139,22 +140,22 @@ app.post('/sdk/v2', urlencodedParser, bodyParser.json(), async (request, respons
                 if (!(timeout && "number" == typeof originMax && (originMax >=1 && originMax <= 100 ))) {
                     timeout = 5
                 }
-
+         
                 const arr = await doPull(userKey, {max, timeout})
                 let resarr = []
 
                 for (let obj of arr) {
-                    console.log("resp", userKey, obj.id)
                     resarr.push({"id": obj.id, "result": obj.result, "error": obj.error})
                 }
-                return response.send({ "jsonrpc": "2.0", "id": jsid, "result": resarr })
+                // console.log("resp", userKey, resarr)
+                return response.status(200).send({ "jsonrpc": "2.0", "id": jsid, "result": resarr })  
             default:
                 console.log("invalid method")
-                return response.send("invalid param").status(400)
+                return response.status(400).send("invalid param")
         }
     } catch(e) {
         console.log("invalid method", e.message)
-        return response.send(e.message).status(400)
+        return response.status(400).send(e.message)
     }    
 })
 
